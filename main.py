@@ -47,7 +47,7 @@ def process_video():
                 # Нечетные: видео
                 video_out = f"segment_{segment_index}_video.mp4"
                 ffmpeg.input(video_path, ss=segment_start, t=segment_duration)\
-                      .output(video_out, codec='libx264').run(overwrite_output=True)
+                      .output(video_out).run(overwrite_output=True)
 
             i += segment_duration
             segment_index += 1
@@ -59,9 +59,7 @@ def process_video():
             }
         })
 
-    except ffmpeg.Error as e:
-        return jsonify({"error": "FFmpeg error", "details": e.stderr.decode()}), 500
-
+  
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     
