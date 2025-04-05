@@ -1,77 +1,76 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_file
 import os
 import requests
 import ffmpeg
-import math
-from uuid import uuid4
 
 app = Flask(__name__)
-os.makedirs("outputs", exist_ok=True)
 
 @app.route("/")
 def home():
-    return "🎬 Video Processor is running!"
+    return "✅ Video Processor API is running!"
 
 @app.route("/process", methods=["POST"])
 def process_video():
+    data = request.get_json()
+    url = data.get("url")
+    if not url:
+        return jsonify({"error": "Missing video URL"}), 400
+
     try:
-        data = request.get_json()
-        url = data.get("url")
-        if not url:
-            return jsonify({"error": "Missing video URL"}), 400
-
-        # Скачиваем видео
-        uid = str(uuid4())
-        video_path = f"outputs/{uid}.mp4"
-        r = requests.get(url, stream=True)
+        # 1. Скачать видео
+        video_path = "temp_video.mp4"
+        r = requests.get(url)
         with open(video_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+            f.write(r.content)
 
-        # Извлекаем общее аудио
-        full_audio_path = f"outputs/{uid}_full_audio.mp3"
-        ffmpeg.input(video_path).output(full_audio_path).run(overwrite_output=True)
+        # 2. Извлечь всё аудио
+        audio_full = "full_audio.wav"
+        ffmpeg.input(video_path).output(audio_full).run(overwrite_output=True)
 
-        # Получаем длительность видео
+        # 3. Разбить видео на сегменты и сохранить аудио / видео
         probe = ffmpeg.probe(video_path)
-        duration = float(probe["format"]["duration"])
-        segments = math.ceil(duration / 5)
+        duration = float(probe['format']['duration'])
+        segment_duration = 5
+        i = 0
+        segment_index = 1
 
-        audio_links = []
-        video_links = []
+        while i < duration:
+            segment_start = i
+            segment_end = min(i + segment_duration, duration)
 
-        for i in range(segments):
-            start = i * 5
-            segment_id = f"{uid}_segment_{i+1}"
-
-            if (i + 1) % 2 == 0:
-                # Чётные — извлекаем аудио
-                audio_out = f"outputs/{segment_id}_audio.mp3"
-                ffmpeg.input(video_path, ss=start, t=5).output(audio_out).run(overwrite_output=True)
-                audio_links.append(f"/download/{os.path.basename(audio_out)}")
+            if segment_index % 2 == 0:
+                # Четные: аудио
+                audio_out = f"segment_{segment_index}_audio.wav"
+                ffmpeg.input(video_path, ss=segment_start, t=segment_duration)\
+                      .output(audio_out).run(overwrite_output=True)
             else:
-                # Нечётные — извлекаем видео
-                video_out = f"outputs/{segment_id}_video.mp4"
-                ffmpeg.input(video_path, ss=start, t=5).output(video_out).run(overwrite_output=True)
-                video_links.append(f"/download/{os.path.basename(video_out)}")
+                # Нечетные: видео
+                video_out = f"segment_{segment_index}_video.mp4"
+                ffmpeg.input(video_path, ss=segment_start, t=segment_duration)\
+                      .output(video_out, codec='libx264').run(overwrite_output=True)
 
-        # Удаляем исходное видео
-        os.remove(video_path)
+            i += segment_duration
+            segment_index += 1
 
         return jsonify({
-            "full_audio": f"/download/{os.path.basename(full_audio_path)}",
-            "audio_segments": audio_links,
-            "video_segments": video_links
+            "message": "✔ Обработка завершена",
+            "download": {
+                "full_audio": "/download/full_audio.wav"
+            }
         })
 
+    except ffmpeg.Error as e:
+        return jsonify({"error": "FFmpeg error", "details": e.stderr.decode()}), 500
+
     except Exception as e:
-        import traceback
-        print(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
-@app.route("/download/<filename>")
+@app.route('/download/<filename>')
 def download_file(filename):
-    return send_from_directory("outputs", filename, as_attachment=True)
+    path = os.path.join(".", filename)
+    if os.path.exists(path):
+        return send_file(path, as_attachment=True)
+    return jsonify({"error": "File not found"}), 404
 
 if __name__ == "__main__":
     app.run()
