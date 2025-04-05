@@ -64,6 +64,10 @@ def process_video():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+    except ffmpeg.Error as e:
+        error_message = e.stderr.decode() if e.stderr else str(e)
+        return jsonify({"error": "FFmpeg error", "details": error_message}), 500
 
 @app.route('/download/<filename>')
 def download_file(filename):
