@@ -25,10 +25,7 @@ def process_video():
         clip.write_videofile("segment_1_video.mp4", codec="libx264")
         os.remove(filename)
 
-        return jsonify({"message": "Video processed"}), 200
+        return jsonify({"message": "Video processed successfully"}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run()
