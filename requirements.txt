@@ -3,3 +3,5 @@ moviepy
 pydub
 requests
 gunicorn
+fastapi
+uvicorn
